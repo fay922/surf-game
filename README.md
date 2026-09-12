@@ -1,40 +1,112 @@
-# 🏄 Surf · 冲浪小游戏
+# 🏄 Surf（Let's Surf）
 
-复刻 Microsoft Edge 断网小游戏「Surf」的核心玩法，纯 HTML5 Canvas 实现，无任何依赖。
+Microsoft Edge 浏览器断网小游戏 **Surf**（`edge://surf`）的独立运行版本。
 
-## 玩法（还原原版机制）
+原版游戏由 Microsoft 开发。本仓库中的文件提取自 Microsoft Edge 并做了少量修改，使其可以脱离 Edge 浏览器独立运行，修改部分参考了 [jackbuehner/MicrosoftEdge-Surf](https://github.com/jackbuehner/MicrosoftEdge-Surf)。
 
-- **↑ / W**：上浮跳跃（越过岩石、海草、岛屿）
-- **↓ / S**：下潜（躲过木箱、船只）
-- **← / →**（或 `A` / `D`）：左右移动
-- **F**：使用加速（⚡，需先收集能量，最多 3 格）
-- **空格 / 点击屏幕**：开始 / 重新开始
-- 手机端：屏幕方向键 + ⚡ 按钮，双击屏幕也可加速
+<p align="center">
+  <a href="https://fay922.github.io/surf-game/"><strong>▶ 在线试玩</strong></a>
+  ·
+  <a href="#features">功能</a>
+  ·
+  <a href="#controls">操作</a>
+  ·
+  <a href="#license">许可</a>
+</p>
 
-## 游戏内容
+## 在线试玩
 
-| 类型 | 说明 |
+**https://fay922.github.io/surf-game/**
+
+（部署于 GitHub Pages，`main` 分支根目录）
+
+## 功能<a id="features"></a>
+
+- **无尽模式（Endless）**：尽可能冲得更远，躲避障碍与海怪
+- **计时赛（Time Trials）**：以最快速度到达终点，收集金币可缩短时间，赛道固定，可反复挑战最短路线
+- **穿门模式（Zig Zag）**：连续穿过尽可能多的浮标门，漏门会中断连击，但可继续玩到生命耗尽
+- **最高分记录**：每个模式独立记录最高分，刷新纪录时会有提示，可随时重置统计
+- **降速模式**：放慢游戏节奏，便于上手或练习
+- **双主题**：夏日冲浪主题 / 冬季滑雪主题
+- **多输入支持**：键盘、鼠标、触屏、手柄
+- **彩蛋**：隐藏了多个小惊喜
+
+## 操作说明<a id="controls"></a>
+
+| 输入 | 动作 |
 | --- | --- |
-| 🪨 岩石 / 🌿 海草 / 🏝️ 岛屿 | 撞击型障碍，需跳过 |
-| 📦 木箱 / ⛵ 船只 | 撞击型障碍，需下潜躲避 |
-| 🔴 浮标 | 减速（不扣命） |
-| 🌊 坡道 | 冲上去腾空，无敌滑翔 |
-| 🪙 金币 / ⚡ 能量 / ❤️ 生命 | 道具 |
-| 🐕 伙伴 | 约 420 米处出现，替你挡一次撞击 |
-| 🦑 海怪触手 | 预警后从海底伸出，被抓住直接结束 |
+| ↑ / `W` | 上浮 |
+| ↓ / `S` | 下潜 |
+| ← / → 或 `A` / `D` | 左右转向 |
+| `F` / 右键 / 双击 | 使用加速 |
+| 空格 / 回车 | 开始 / 暂停 |
+| `Esc` | 设置菜单 |
+| 触屏 | 滑动 / 点按转向，双击加速 |
 
-- 3 条命，撞击扣命并短暂无敌
-- 分数 = 前进距离（米），速度随时间逐渐加快
-- 最高分保存在本地浏览器
+> 具体操作可在游戏内 **How to play** 菜单查看。
 
-## 在线游玩
+## 游戏模式<a id="modes"></a>
 
-https://fay922.github.io/surf-game/
+| 模式 | 目标 | 计分 |
+| --- | --- | --- |
+| Endless | 冲得越远越好 | 距离（米） |
+| Time Trials | 最快到达终点 | 用时 − 2 × 金币数 |
+| Zig Zag | 连续穿门 | 连续穿过门数 |
+
+## 项目结构
+
+```
+surf-game/
+├── index.html              # 入口页面
+├── manifest.json           # PWA 清单
+├── browserconfig.xml       # 浏览器磁贴配置
+├── LICENSE                 # BSD-3-Clause
+├── README.md
+└── resources/
+    ├── css/                # 界面样式
+    ├── icons/              # 站点图标
+    ├── js/                 # 游戏脚本（含 surf.bundle.js）
+    ├── surf/               # 冲浪主题美术资源
+    └── ski/                # 滑雪主题美术资源
+```
 
 ## 本地运行
 
-直接用浏览器打开 `index.html`，或：
+无需构建，任意静态服务器均可：
 
 ```bash
-python -m http.server 8000   # 然后访问 http://localhost:8000
+# 方式一：Python
+python -m http.server 8000
+# 访问 http://localhost:8000
+
+# 方式二：Node
+npx serve .
 ```
+
+也可以直接用浏览器打开 `index.html`（部分浏览器对 `file://` 有安全限制，建议用本地服务器）。
+
+## 部署到 GitHub Pages
+
+1. Fork / 推送本仓库到 GitHub
+2. 进入仓库 **Settings → Pages**
+3. **Source** 选择 `Deploy from a branch`，分支选 `main`，目录选 `/ (root)`
+4. 保存后等待构建，访问 `https://<你的用户名>.github.io/surf-game/`
+
+## 版权与许可<a id="license"></a>
+
+- 游戏代码与美术资源 © **Microsoft Corporation**，保留所有权利。
+- 源码文件头声明其使用 **BSD 风格许可** 授权，详见 [LICENSE](./LICENSE)（BSD 3-Clause）。
+- 原版游戏中的 **Credits**（游戏菜单内）列有完整致谢名单。
+
+## 免责声明
+
+本仓库为粉丝向的独立运行部署，**与 Microsoft 无关联，亦未获得其官方认可**。游戏名称、图标与美术资源可能受 Microsoft 商标与版权保护。本项目仅供学习与个人娱乐使用，请勿用于商业用途。若权利人提出要求，本仓库将立即下架。
+
+## 致谢
+
+- **Microsoft** — 原版游戏《Let's Surf》
+- **jackbuehner/MicrosoftEdge-Surf** — 独立化改造与移动端适配参考
+
+## 贡献
+
+欢迎通过 Issue / Pull Request 提交问题与改进。提交前请确认修改不破坏原有功能。
