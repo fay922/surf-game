@@ -3,75 +3,34 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Surf - 冲浪小游戏</title>
+<title>Surf · 冲浪小游戏</title>
 <style>
-  :root {
-    --accent: #ffd34d;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   html, body {
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: #0b1f3a;
+    width: 100%; height: 100%; overflow: hidden; background: #062a4a;
     font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
   }
-
-  #wrap {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px;
-  }
-
+  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 6px; }
   #stage {
-    position: relative;
-    width: min(100vw, calc(100vh * 1.78));
-    aspect-ratio: 16 / 9;
-    border-radius: 14px;
-    overflow: hidden;
+    position: relative; width: min(100vw, calc(100vh * 1.78)); aspect-ratio: 16 / 9;
+    border-radius: 12px; overflow: hidden; background: #4fc3f7;
     box-shadow: 0 20px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08);
-    background: #58b7e8;
   }
-
   canvas { display: block; width: 100%; height: 100%; }
-
-  /* 移动端按键 */
-  #touch {
-    position: absolute;
-    inset: 0;
-    display: none;
-    pointer-events: none;
-  }
+  #touch { position: absolute; inset: 0; display: none; pointer-events: none; }
   #touch button {
-    position: absolute;
-    pointer-events: auto;
-    border: 0;
-    background: rgba(255,255,255,.16);
-    color: #fff;
-    font-size: 26px;
-    border-radius: 50%;
-    width: 64px;
-    height: 64px;
-    backdrop-filter: blur(4px);
-    border: 1px solid rgba(255,255,255,.3);
-    touch-action: manipulation;
+    position: absolute; pointer-events: auto; border: 0; background: rgba(255,255,255,.15);
+    color: #fff; font-size: 24px; border-radius: 50%; width: 62px; height: 62px;
+    border: 1px solid rgba(255,255,255,.3); touch-action: manipulation;
   }
-  #touch button:active { background: rgba(255,255,255,.35); }
-  #btn-up   { left: 14px; bottom: 120px; }
-  #btn-down { left: 14px; bottom: 34px; }
-  #btn-left { right: 120px; bottom: 34px; }
-  #btn-right{ right: 34px; bottom: 34px; }
-
-  @media (pointer: coarse) {
-    #touch { display: block; }
-  }
+  #touch button:active { background: rgba(255,255,255,.38); }
+  #btn-up    { left: 12px; bottom: 128px; }
+  #btn-down  { left: 12px; bottom: 40px; }
+  #btn-left  { right: 132px; bottom: 40px; }
+  #btn-right { right: 40px; bottom: 40px; }
+  #btn-boost { right: 40px; bottom: 128px; background: rgba(255,210,60,.25); font-size: 15px; font-weight: bold; }
+  @media (pointer: coarse) { #touch { display: block; } }
 </style>
 </head>
 <body>
@@ -79,10 +38,11 @@
   <div id="stage">
     <canvas id="game"></canvas>
     <div id="touch">
-      <button id="btn-up" aria-label="上">▲</button>
-      <button id="btn-down" aria-label="下">▼</button>
-      <button id="btn-left" aria-label="左">◀</button>
-      <button id="btn-right" aria-label="右">▶</button>
+      <button id="btn-up">▲</button>
+      <button id="btn-down">▼</button>
+      <button id="btn-left">◀</button>
+      <button id="btn-right">▶</button>
+      <button id="btn-boost">⚡</button>
     </div>
   </div>
 </div>
@@ -91,595 +51,756 @@
 (() => {
   "use strict";
 
-  // ---------- 基础设置 ----------
+  // ============ 基础 ============
   const W = 960, H = 540;
-  const LANE_Y = [210, 315, 420];           // 上 / 中 / 下 三条泳道
-  const PLAYER_BASE_X = 150;
-  const MIN_X = 70, MAX_X = 430;
+  const WAVE_Y = 330;           // 浪面基准线（冲浪者骑在浪上）
+  const SURF_X = 200;           // 冲浪者屏幕 X
+  const MIN_X = 88, MAX_X = 430;
+  const MAX_UP = WAVE_Y - 150;  // 最高跳跃
+  const MAX_DOWN = WAVE_Y + 150;// 最深下潜
 
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   canvas.width = W; canvas.height = H;
 
-  // ---------- 音效（WebAudio 无素材） ----------
+  // ============ 音效 ============
   let audioCtx = null;
   function beep(freq, dur, type = "sine", vol = 0.12) {
     try {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
       o.type = type; o.frequency.value = freq;
-      g.gain.value = vol;
+      g.gain.setValueAtTime(vol, audioCtx.currentTime);
       g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
       o.connect(g); g.connect(audioCtx.destination);
-      o.start();
-      o.stop(audioCtx.currentTime + dur);
+      o.start(); o.stop(audioCtx.currentTime + dur);
     } catch (e) {}
   }
-  const sfxPick = () => beep(880, .12, "sine");
-  const sfxCrash = () => { beep(180, .3, "sawtooth", .15); beep(90, .4, "sawtooth", .15); };
-  const sfxLane = () => beep(520, .06, "triangle", .08);
+  const sfx = {
+    jump:   () => beep(500, .12, "triangle", .08),
+    dive:   () => beep(300, .14, "sine", .1),
+    pickup: () => { beep(880, .1, "sine"); setTimeout(() => beep(1320, .12, "sine"), 60); },
+    crash:  () => { beep(160, .3, "sawtooth", .14); beep(80, .4, "sawtooth", .14); },
+    boost:  () => beep(200, .5, "sawtooth", .1),
+    ramp:   () => { beep(400, .12, "triangle"); setTimeout(() => beep(800, .16, "triangle"), 80); },
+    kraken: () => { beep(70, .7, "sawtooth", .18); beep(55, .8, "sawtooth", .16); },
+  };
 
-  // ---------- 游戏状态 ----------
-  const state = {
-    mode: "menu",          // menu | playing | over
+  // ============ 状态 ============
+  const S = {
+    mode: "menu",            // menu | play | over
     score: 0,
-    best: Number(localStorage.getItem("surf-best") || 0),
-    speed: 260,
-    distance: 0,
-    lane: 1,
-    px: PLAYER_BASE_X,
-    py: LANE_Y[1],
-    t: 0,
+    dist: 0,                 // 距离累计（浮点）
+    best: +(localStorage.getItem("surf2-best") || 0),
+    time: 0,
+    t: 0,                    // 全局动画时间
+    // 前进速度（世界滚动）
+    fwd: 0, fwdMax: 460, fwdMin: 170,
+    // 冲浪者
+    x: SURF_X, y: WAVE_Y, vy: 0, vx: 0,
+    jumpHeld: false, diveHeld: false,
+    // 生命 / 加速 / 朋友
+    lives: 3, boosts: 0, boostMax: 3,
+    boosting: 0,              // 加速剩余秒
+    shield: 0,                // 无敌剩余秒
+    air: 0,                   // 腾空剩余秒（坡道）
+    friend: false,
+    // 海怪
+    kraken: 0,                // 触手事件剩余秒
+    krakenWarn: 0,
+    // 减速
+    slow: 0,
+    // 实体
+    obstacles: [], pickups: [], fx: [], tentacles: [],
+    spawnT: 0, pickupT: 2, friendSpawned: false,
+    hint: 0,
     shake: 0,
-    obstacles: [],
-    pickups: [],
-    particles: [],
-    spawnTimer: 0,
-    spawnGap: 1.35,
-    showHint: false,
+    over: null,               // 'lives' | 'kraken'
+  };
+
+  // ============ 障碍定义 ============
+  // kind: 'jump' 需要跳过（在上方） | 'dive' 需要下潜（在下方）
+  const OBS = {
+    rock:   { w: 76, h: 50, y: WAVE_Y - 16, kind: "jump", wgt: 30 },
+    kelp:   { w: 54, h: 168, y: WAVE_Y - 54, kind: "jump", wgt: 18 },
+    island: { w: 98, h: 150, y: WAVE_Y - 88, kind: "jump", wgt: 9 },
+    crate:  { w: 64, h: 44, y: WAVE_Y - 38, kind: "dive", wgt: 22 },
+    boat:   { w: 150, h: 66, y: WAVE_Y - 52, kind: "dive", wgt: 13 },
+    buoy:   { w: 38, h: 42, y: WAVE_Y - 14, kind: "slow", wgt: 18 },
+    ramp:   { w: 92, h: 28, y: WAVE_Y - 4,  kind: "ramp", wgt: 6 },
   };
 
   function reset() {
-    state.score = 0;
-    state.speed = 260;
-    state.distance = 0;
-    state.lane = 1;
-    state.px = PLAYER_BASE_X;
-    state.py = LANE_Y[1];
-    state.t = 0;
-    state.shake = 0;
-    state.obstacles = [];
-    state.pickups = [];
-    state.particles = [];
-    state.spawnTimer = 1.0;
-    state.spawnGap = 1.35;
+    S.mode = "play"; S.score = 0; S.dist = 0; S.time = 0;
+    S.fwd = S.fwdMin;
+    S.x = SURF_X; S.y = WAVE_Y; S.vy = 0; S.vx = 0;
+    S.lives = 3; S.boosts = 0; S.boosting = 0; S.shield = 0; S.air = 0;
+    S.friend = false; S.kraken = 0; S.krakenWarn = 0; S.slow = 0;
+    S.obstacles = []; S.pickups = []; S.fx = []; S.tentacles = [];
+    S.spawnT = 1.2; S.pickupT = 2.2; S.friendSpawned = false;
+    S.hint = 3; S.shake = 0; S.over = null;
   }
 
-  // ---------- 输入 ----------
-  function moveLane(d) {
-    if (state.mode !== "playing") return;
-    const nl = Math.max(0, Math.min(2, state.lane + d));
-    if (nl !== state.lane) { state.lane = nl; sfxLane(); }
+  // ============ 输入 ============
+  function actJump() {
+    if (S.mode !== "play") return;
+    if (S.air > 0) return;                       // 空中只能下潜
+    S.vy = -760; S.jumpHeld = true; sfx.jump();
   }
-  function moveX(dx) {
-    if (state.mode !== "playing") return;
-    state.px = Math.max(MIN_X, Math.min(MAX_X, state.px + dx));
+  function actDive() {
+    if (S.mode !== "play") return;
+    S.vy = Math.min(S.vy + 500, 860); S.diveHeld = true; sfx.dive();
+  }
+  function actLeft() { if (S.mode === "play") S.vx = -330; }
+  function actRight() { if (S.mode === "play") S.vx = 330; }
+  function actBoost() {
+    if (S.mode !== "play") return;
+    if (S.boosts > 0 && S.boosting <= 0) {
+      S.boosts--; S.boosting = 3.0; sfx.boost();
+      burst(S.x, S.y, "#ffd54f", 14);
+    }
   }
 
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
-    if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(k.toLowerCase()) || e.key === " ") {
-      e.preventDefault();
-    }
-    if (k === "arrowup" || k === "w") moveLane(-1);
-    else if (k === "arrowdown" || k === "s") moveLane(1);
-    else if (k === "arrowleft" || k === "a") moveX(-16);
-    else if (k === "arrowright" || k === "d") moveX(16);
-    else if (e.key === " " || e.key === "Enter") {
-      if (state.mode === "menu") startGame();
-      else if (state.mode === "over") startGame();
-    }
+    if (["arrowup","arrowdown","arrowleft","arrowright"," "].includes(k)) e.preventDefault();
+    if (k === "arrowup" || k === "w") actJump();
+    else if (k === "arrowdown" || k === "s") actDive();
+    else if (k === "arrowleft" || k === "a") actLeft();
+    else if (k === "arrowright" || k === "d") actRight();
+    else if (k === "f") actBoost();
+    else if (k === " " || k === "enter") {
+      if (S.mode !== "play") reset();
+    } else if (k === "escape" && S.mode === "play") { S.mode = "menu"; }
+  });
+  window.addEventListener("keyup", (e) => {
+    const k = e.key.toLowerCase();
+    if (k === "arrowup" || k === "w") S.jumpHeld = false;
+    if (k === "arrowdown" || k === "s") S.diveHeld = false;
+    if (k === "arrowleft" || k === "a" || k === "arrowright" || k === "d") S.vx = 0;
   });
 
-  // 触屏按钮
   const bind = (id, fn) => {
     const el = document.getElementById(id);
     if (!el) return;
     const fire = (e) => { e.preventDefault(); fn(); };
     el.addEventListener("pointerdown", fire);
   };
-  bind("btn-up", () => moveLane(-1));
-  bind("btn-down", () => moveLane(1));
-  bind("btn-left", () => moveX(-16));
-  bind("btn-right", () => moveX(16));
+  bind("btn-up", actJump);
+  bind("btn-down", actDive);
+  bind("btn-left", actLeft);
+  bind("btn-right", actRight);
+  bind("btn-boost", actBoost);
 
-  // 点击/触摸画布也可切换（点上半=上，下半=下，仅作为辅助）
+  // 双击画布 = 加速
+  let lastTap = 0;
   canvas.addEventListener("pointerdown", (e) => {
-    if (state.mode === "menu" || state.mode === "over") { startGame(); return; }
-    const rect = canvas.getBoundingClientRect();
-    const y = (e.clientY - rect.top) / rect.height * H;
-    if (y < LANE_Y[1]) moveLane(-1);
-    else moveLane(1);
+    if (S.mode !== "play") { reset(); return; }
+    const now = performance.now();
+    if (now - lastTap < 260) actBoost();
+    lastTap = now;
   });
 
-  function startGame() {
-    reset();
-    state.mode = "playing";
-    try { if (audioCtx && audioCtx.state === "suspended") audioCtx.resume(); } catch (e) {}
+  // ============ 生成 ============
+  function weightedPick() {
+    const d = Math.min(1, S.time / 120);          // 难度 0..1
+    const w = {
+      rock: OBS.rock.wgt,
+      kelp: OBS.kelp.wgt + d * 12,
+      island: OBS.island.wgt + d * 10,
+      crate: OBS.crate.wgt,
+      boat: OBS.boat.wgt + d * 8,
+      buoy: OBS.buoy.wgt,
+      ramp: OBS.ramp.wgt,
+    };
+    let total = 0; for (const k in w) total += w[k];
+    let r = Math.random() * total;
+    for (const k in w) { r -= w[k]; if (r <= 0) return k; }
+    return "rock";
   }
-
-  // ---------- 生成 ----------
   function spawnObstacle() {
-    const lane = Math.floor(Math.random() * 3);
-    const kind = ["bird", "palm", "kraken"][lane]; // 上=海鸥 中=棕榈岛 下=海怪
-    state.obstacles.push({
-      kind,
-      lane,
-      x: W + 60,
-      w: kind === "bird" ? 62 : kind === "palm" ? 78 : 86,
-      h: kind === "bird" ? 44 : kind === "palm" ? 96 : 120,
-    });
+    const type = weightedPick();
+    const o = Object.assign({ type, x: W + 70, sway: Math.random() * 6.28 }, OBS[type]);
+    S.obstacles.push(o);
   }
-
   function spawnPickup() {
-    const lane = Math.floor(Math.random() * 3);
-    state.pickups.push({ lane, x: W + 30, r: 16 });
+    const r = Math.random();
+    let type = r < 0.5 ? "coin" : r < 0.8 ? "boost" : "life";
+    const y = WAVE_Y - 60 - Math.random() * 60;
+    S.pickups.push({ type, x: W + 40, y, r: 17 });
   }
 
-  // ---------- 更新 ----------
+  // ============ 粒子 ============
+  function burst(x, y, color, n, spd = 160) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, s = spd * (0.3 + Math.random());
+      S.fx.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 50, life: .4 + Math.random() * .4, color, r: 2 + Math.random() * 3 });
+    }
+  }
+  function splash(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      S.fx.push({ x, y, vx: (Math.random() - .5) * 200, vy: -Math.random() * 240 - 60, life: .5 + Math.random() * .4, color: "#eafaff", r: 1.5 + Math.random() * 2.5 });
+    }
+  }
+
+  // ============ 更新 ============
   function update(dt) {
-    if (state.mode !== "playing") return;
+    S.t += dt;
+    if (S.mode === "menu" || S.mode === "over") return;
 
-    state.t += dt;
-    state.speed = Math.min(760, 260 + state.t * 7);
-    state.distance += state.speed * dt;
-    state.score = Math.floor(state.distance / 12);
-    state.py += (LANE_Y[state.lane] - state.py) * Math.min(1, dt * 12);
-    state.spawnGap = Math.max(0.72, 1.35 - state.t * 0.012);
+    S.time += dt;
+    S.hint = Math.max(0, S.hint - dt);
 
-    // 生成障碍
-    state.spawnTimer -= dt;
-    if (state.spawnTimer <= 0) {
-      state.spawnTimer = state.spawnGap * (0.8 + Math.random() * 0.5);
-      if (Math.random() < 0.8) spawnObstacle();
-      if (Math.random() < 0.35) spawnPickup();
+    // 前进速度递增 + 减速/加速
+    const slowMul = S.slow > 0 ? 0.55 : 1;
+    const boostMul = S.boosting > 0 ? 1.55 : 1;
+    const airMul = S.air > 0 ? 1.25 : 1;
+    const target = S.fwdMin + (S.fwdMax - S.fwdMin) * Math.min(1, S.time / 90);
+    S.fwd += (target - S.fwd) * Math.min(1, dt * 1.2);
+    const speed = S.fwd * slowMul * boostMul * airMul;
+    S.boosting = Math.max(0, S.boosting - dt);
+    S.slow = Math.max(0, S.slow - dt);
+    S.shield = Math.max(0, S.shield - dt);
+    S.krakenWarn = Math.max(0, S.krakenWarn - dt);
+
+    // 分数 = 前进距离（米）
+    S.dist += speed * dt / 12;
+    S.score = Math.floor(S.dist);
+    if (S.score > S.best) S.best = S.score;
+
+    // ---- 冲浪者垂直物理 ----
+    if (S.air > 0) {
+      // 腾空：重力回落
+      S.air -= dt;
+      S.vy += 2000 * dt;
+      S.y += S.vy * dt;
+      if (S.y >= WAVE_Y) { S.y = WAVE_Y; S.vy = 0; S.air = 0; S.shield = Math.max(S.shield, 0.4); splash(S.x, WAVE_Y, 14); }
+    } else {
+      if (S.jumpHeld && S.y > MAX_UP) S.vy -= 3000 * dt;
+      if (S.diveHeld && S.y < MAX_DOWN) S.vy += 3000 * dt;
+      if (S.y < WAVE_Y) S.vy += 1900 * dt;              // 空中下落
+      else S.vy -= 1500 * dt * Math.min(1, (S.y - WAVE_Y) / 40); // 浮力拉回浪面
+      S.vy = Math.max(-900, Math.min(900, S.vy));
+      S.y += S.vy * dt;
+      if (S.y > WAVE_Y + 6 && Math.abs(S.vy) > 260) splash(S.x, WAVE_Y, 2);
+    }
+    S.y = Math.max(MAX_UP, Math.min(MAX_DOWN, S.y));
+
+    // ---- 水平移动 ----
+    S.x += S.vx * dt;
+    S.x = Math.max(MIN_X, Math.min(MAX_X, S.x));
+
+    // ---- 生成 ----
+    const gap = Math.max(0.62, 1.25 - S.time * 0.004);
+    S.spawnT -= dt;
+    if (S.spawnT <= 0) { S.spawnT = gap * (0.7 + Math.random() * 0.6); spawnObstacle(); }
+
+    S.pickupT -= dt;
+    if (S.pickupT <= 0) { S.pickupT = 2.2 + Math.random() * 2.0; spawnPickup(); }
+
+    // 朋友：约 420 米处出现一次
+    if (!S.friendSpawned && S.score > 420) {
+      S.friendSpawned = true;
+      S.pickups.push({ type: "friend", x: W + 60, y: WAVE_Y - 46, r: 20 });
     }
 
-    // 障碍移动 + 碰撞
-    const px = state.px, py = state.py;
-    const pw = 52, ph = 34; // 玩家碰撞盒
-    for (let i = state.obstacles.length - 1; i >= 0; i--) {
-      const o = state.obstacles[i];
-      o.x -= state.speed * dt;
-      if (o.x < -120) { state.obstacles.splice(i, 1); continue; }
-      const oy = LANE_Y[o.lane] - o.h / 2;
-      // 碰撞（略缩小，更宽容）
-      if (rectHit(px - pw/2, py - ph/2, pw, ph, o.x - o.w/2 + 6, oy + 6, o.w - 12, o.h - 12)) {
-        gameOver();
-        return;
+    // 海怪：随机预警后触手攻击
+    if (S.kraken === 0 && S.time > 25 && Math.random() < dt * 0.12) {
+      S.krakenWarn = 1.1;
+    }
+    if (S.krakenWarn > 0 && S.krakenWarn < 0.5 && S.kraken === 0 && S.tentacles.length === 0) {
+      S.kraken = 2.6; S.krakenWarn = 0; sfx.kraken();
+      for (let i = 0; i < 3; i++) S.tentacles.push({ x: S.x + (i - 1) * 120, phase: i * 2.1 });
+    }
+
+    // ---- 障碍移动 & 碰撞 ----
+    for (let i = S.obstacles.length - 1; i >= 0; i--) {
+      const o = S.obstacles[i];
+      o.x -= speed * dt;
+      if (o.x < -140) { S.obstacles.splice(i, 1); continue; }
+      if (S.shield > 0 || S.air > 0) continue;      // 无敌/腾空不判定
+      if (o.type === "ramp") {
+        if (hit(o)) { S.obstacles.splice(i, 1); S.air = 1.45; S.vy = -820; sfx.ramp(); splash(S.x, WAVE_Y, 16); }
+        continue;
+      }
+      if (hit(o)) {
+        if (o.type === "buoy") { S.slow = 1.4; S.obstacles.splice(i, 1); splash(o.x + 19, WAVE_Y, 8); continue; }
+        S.obstacles.splice(i, 1);
+        crash();
       }
     }
 
-    // 拾取物
-    for (let i = state.pickups.length - 1; i >= 0; i--) {
-      const p = state.pickups[i];
-      p.x -= state.speed * dt;
-      if (p.x < -40) { state.pickups.splice(i, 1); continue; }
-      const py2 = LANE_Y[p.lane];
-      const dx = px - p.x, dy = py - py2;
-      if (dx * dx + dy * dy < (34 + p.r) * (34 + p.r)) {
-        state.score += 50;
-        sfxPick();
-        burst(p.x, py2, "#ffe082", 10);
-        state.pickups.splice(i, 1);
+    // ---- 拾取物 ----
+    for (let i = S.pickups.length - 1; i >= 0; i--) {
+      const p = S.pickups[i];
+      p.x -= speed * dt;
+      if (p.x < -40) { S.pickups.splice(i, 1); continue; }
+      const dx = S.x - p.x, dy = S.y - p.y;
+      if (dx * dx + dy * dy < (40 + p.r) * (40 + p.r)) {
+        S.pickups.splice(i, 1);
+        collect(p.type, p.x, p.y);
       }
     }
 
-    // 粒子
-    for (let i = state.particles.length - 1; i >= 0; i--) {
-      const pt = state.particles[i];
-      pt.x += pt.vx * dt; pt.y += pt.vy * dt;
-      pt.life -= dt;
-      if (pt.life <= 0) state.particles.splice(i, 1);
+    // ---- 海怪触手 ----
+    if (S.kraken > 0) {
+      S.kraken -= dt;
+      const cx = S.x;
+      for (const tk of S.tentacles) {
+        tk.x += (cx + (tk.phase - 3.14) * 70 - tk.x) * Math.min(1, dt * 3);
+        if (rect(S.x - 20, S.y - 16, 40, 32, tk.x - 26, WAVE_Y - 30, 52, 200)) {
+          gameOver("kraken");
+          return;
+        }
+      }
+      if (S.kraken <= 0) S.tentacles = [];
     }
 
-    if (state.shake > 0) state.shake -= dt * 30;
+    // ---- 粒子 ----
+    for (let i = S.fx.length - 1; i >= 0; i--) {
+      const f = S.fx[i];
+      f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 500 * dt; f.life -= dt;
+      if (f.life <= 0) S.fx.splice(i, 1);
+    }
+    if (S.shake > 0) S.shake -= dt * 20;
+
+    // 泡沫尾迹
+    if (Math.random() < dt * 30) splash(S.x - 24, WAVE_Y + 8, 1);
   }
 
-  function rectHit(ax, ay, aw, ah, bx, by, bw, bh) {
+  function hit(o) {
+    return rect(S.x - 20, S.y - 16, 40, 32, o.x - o.w / 2 + 5, o.y + 5, o.w - 10, o.h - 10);
+  }
+  function rect(ax, ay, aw, ah, bx, by, bw, bh) {
     return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
   }
 
-  function burst(x, y, color, n) {
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const sp = 60 + Math.random() * 140;
-      state.particles.push({
-        x, y,
-        vx: Math.cos(a) * sp,
-        vy: Math.sin(a) * sp - 60,
-        life: 0.4 + Math.random() * 0.4,
-        color,
-      });
+  function crash() {
+    if (S.shield > 0 || S.air > 0) return;
+    if (S.friend) {
+      S.friend = false;
+      burst(S.x, S.y, "#ffd54f", 16);
+      S.shield = 1.4;
+      sfx.pickup();
+      return;
     }
+    S.lives--;
+    S.shield = 1.3;
+    S.shake = 12;
+    sfx.crash();
+    burst(S.x, S.y, "#ff8a80", 16);
+    if (S.lives <= 0) gameOver("lives");
   }
 
-  function gameOver() {
-    state.mode = "over";
-    sfxCrash();
-    state.shake = 14;
-    if (state.score > state.best) {
-      state.best = state.score;
-      localStorage.setItem("surf-best", String(state.best));
-    }
+  function collect(type, x, y) {
+    sfx.pickup();
+    if (type === "coin") { S.dist += 25; S.score = Math.floor(S.dist); burst(x, y, "#ffe082", 10); }
+    else if (type === "boost") { S.boosts = Math.min(S.boostMax, S.boosts + 1); burst(x, y, "#ffd54f", 12); }
+    else if (type === "life") { S.lives = Math.min(3, S.lives + 1); burst(x, y, "#ff8a80", 14); }
+    else if (type === "friend") { S.friend = true; burst(x, y, "#fff176", 18); }
   }
 
-  // ---------- 绘制 ----------
+  function gameOver(cause) {
+    S.mode = "over"; S.over = cause;
+    if (S.score > S.best) { S.best = S.score; localStorage.setItem("surf2-best", String(S.best)); }
+  }
+
+  // ============ 绘制 ============
   function draw() {
     ctx.save();
-    if (state.shake > 0) {
-      ctx.translate((Math.random() - .5) * state.shake, (Math.random() - .5) * state.shake);
-    }
+    if (S.shake > 0) ctx.translate((Math.random() - .5) * S.shake, (Math.random() - .5) * S.shake);
 
     drawSky();
-    drawOcean();
+    drawWater();
     drawEntities();
+    drawWave();
+    drawSurfer();
+    drawFx();
     drawHUD();
 
     ctx.restore();
 
-    if (state.mode === "menu") drawMenu();
-    else if (state.mode === "over") drawGameOver();
+    if (S.mode === "menu") drawMenu();
+    else if (S.mode === "over") drawOver();
+    else if (S.krakenWarn > 0) drawKrakenWarn();
   }
 
   function drawSky() {
     const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, "#4fc3f7");
-    g.addColorStop(0.55, "#8fd8f7");
-    g.addColorStop(0.75, "#ffe9b8");
+    g.addColorStop(0, "#3fb6f0");
+    g.addColorStop(0.5, "#8fd8f7");
+    g.addColorStop(0.72, "#ffe9b8");
     g.addColorStop(1, "#ffd9a0");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 
-    // 太阳
-    const sunX = 780, sunY = 120;
-    const glow = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, 120);
-    glow.addColorStop(0, "rgba(255,244,180,.95)");
-    glow.addColorStop(0.4, "rgba(255,214,110,.55)");
-    glow.addColorStop(1, "rgba(255,214,110,0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(sunX - 130, sunY - 130, 260, 260);
-    ctx.fillStyle = "#fff3c4";
-    ctx.beginPath(); ctx.arc(sunX, sunY, 42, 0, Math.PI * 2); ctx.fill();
+    const sx = 790, sy = 110;
+    const glow = ctx.createRadialGradient(sx, sy, 8, sx, sy, 130);
+    glow.addColorStop(0, "rgba(255,246,190,.95)");
+    glow.addColorStop(0.4, "rgba(255,220,120,.5)");
+    glow.addColorStop(1, "rgba(255,220,120,0)");
+    ctx.fillStyle = glow; ctx.fillRect(sx - 140, sy - 140, 280, 280);
+    ctx.fillStyle = "#fff6cf"; ctx.beginPath(); ctx.arc(sx, sy, 40, 0, 7); ctx.fill();
 
-    // 云
-    drawCloud(120 + Math.sin(state.t * 0.08) * 20, 80, 1.0);
-    drawCloud(420 + Math.sin(state.t * 0.06 + 2) * 26, 130, 0.8);
-    drawCloud(700 + Math.sin(state.t * 0.05 + 4) * 30, 60, 0.9);
+    drawCloud(120 + Math.sin(S.t * .06) * 22, 78, 1);
+    drawCloud(430 + Math.sin(S.t * .05 + 2) * 28, 126, .8);
+    drawCloud(700 + Math.sin(S.t * .04 + 4) * 32, 56, .9);
+    ctx.fillStyle = "rgba(120,190,150,.5)";
+    ctx.beginPath(); ctx.ellipse(520, 300, 90, 12, 0, 0, 7); ctx.fill();
   }
-
   function drawCloud(x, y, s) {
-    ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.fillStyle = "rgba(255,255,255,.92)";
     ctx.beginPath();
-    ctx.arc(x, y, 20 * s, 0, Math.PI * 2);
-    ctx.arc(x + 22 * s, y - 8 * s, 24 * s, 0, Math.PI * 2);
-    ctx.arc(x + 46 * s, y, 18 * s, 0, Math.PI * 2);
-    ctx.arc(x + 22 * s, y + 6 * s, 20 * s, 0, Math.PI * 2);
+    ctx.arc(x, y, 20 * s, 0, 7);
+    ctx.arc(x + 22 * s, y - 8 * s, 24 * s, 0, 7);
+    ctx.arc(x + 46 * s, y, 18 * s, 0, 7);
+    ctx.arc(x + 22 * s, y + 6 * s, 20 * s, 0, 7);
     ctx.fill();
   }
 
-  function waveY(x) {
-    const base = 345;
-    return base + Math.sin(x * 0.012 + state.t * 2.4) * 9 + Math.sin(x * 0.027 + state.t * 1.6) * 5;
+  function waveFn(x) {
+    return WAVE_Y + Math.sin(x * .014 + S.t * 2.2) * 8 + Math.sin(x * .031 + S.t * 1.5) * 4.5;
   }
 
-  function drawOcean() {
-    // 海水
-    const g = ctx.createLinearGradient(0, 300, 0, H);
-    g.addColorStop(0, "#2fa7d6");
-    g.addColorStop(0.5, "#1a7fb8");
-    g.addColorStop(1, "#0d5a8e");
+  function drawWater() {
+    const g = ctx.createLinearGradient(0, WAVE_Y - 30, 0, H);
+    g.addColorStop(0, "#2fb0d8");
+    g.addColorStop(0.45, "#1a86bd");
+    g.addColorStop(1, "#0c5e93");
     ctx.fillStyle = g;
-    ctx.fillRect(0, 300, W, H - 300);
+    ctx.fillRect(0, WAVE_Y - 30, W, H - WAVE_Y + 30);
 
-    // 浪花
-    ctx.lineWidth = 5;
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "#eafaff";
-    ctx.beginPath();
-    ctx.moveTo(-10, waveY(-10));
-    for (let x = -10; x <= W + 10; x += 6) {
-      ctx.lineTo(x, waveY(x));
-    }
-    ctx.stroke();
-
-    // 浪花泡沫
-    ctx.strokeStyle = "rgba(255,255,255,.55)";
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(-10, waveY(-10) + 10);
-    for (let x = -10; x <= W + 10; x += 8) {
-      ctx.lineTo(x, waveY(x) + 10);
-    }
-    ctx.stroke();
-
-    // 水中光斑
-    ctx.fillStyle = "rgba(255,255,255,.07)";
+    ctx.fillStyle = "rgba(255,255,255,.06)";
     for (let i = 0; i < 6; i++) {
-      const x = ((i * 173 + state.t * 40) % (W + 200)) - 100;
-      const y = 360 + (i * 37) % 150;
-      ctx.beginPath();
-      ctx.ellipse(x, y, 40, 8, 0, 0, Math.PI * 2);
-      ctx.fill();
+      const x = ((i * 173 + S.t * 46) % (W + 220)) - 110;
+      const y = WAVE_Y + 40 + (i * 53) % 160;
+      ctx.beginPath(); ctx.ellipse(x, y, 44, 8, 0, 0, 7); ctx.fill();
     }
+    ctx.fillStyle = "rgba(255,255,255,.18)";
+    for (let i = 0; i < 8; i++) {
+      const x = ((i * 137 + S.t * 30) % W);
+      const y = H - ((S.t * (30 + i * 6) + i * 70) % (H - WAVE_Y));
+      ctx.beginPath(); ctx.arc(x, y, 2 + (i % 3), 0, 7); ctx.fill();
+    }
+  }
+
+  function drawWave() {
+    ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.strokeStyle = "#eafaff";
+    ctx.beginPath(); ctx.moveTo(-12, waveFn(-12));
+    for (let x = -12; x <= W + 12; x += 6) ctx.lineTo(x, waveFn(x));
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.moveTo(-12, waveFn(-12) + 10);
+    for (let x = -12; x <= W + 12; x += 8) ctx.lineTo(x, waveFn(x) + 10);
+    ctx.stroke();
   }
 
   function drawEntities() {
-    // 拾取物（贝壳）
-    for (const p of state.pickups) {
-      drawShell(p.x, LANE_Y[p.lane], p.r);
-    }
-    // 障碍
-    for (const o of state.obstacles) {
-      const y = LANE_Y[o.lane];
-      if (o.kind === "bird") drawBird(o.x, y);
-      else if (o.kind === "palm") drawPalm(o.x, y);
-      else drawKraken(o.x, y);
-    }
-    // 玩家
-    drawSurfer(state.px, state.py);
-    // 粒子
-    for (const pt of state.particles) {
-      ctx.globalAlpha = Math.max(0, pt.life / 0.5);
-      ctx.fillStyle = pt.color;
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
+    for (const p of S.pickups) drawPickup(p);
+    for (const o of S.obstacles) drawObstacle(o);
+    for (const tk of S.tentacles) drawTentacle(tk);
   }
 
-  function drawSurfer(x, y) {
+  function drawObstacle(o) {
+    const x = o.x, y = o.y;
+    ctx.save(); ctx.translate(x, y);
+    switch (o.type) {
+      case "rock": {
+        ctx.fillStyle = "#8d9aa5";
+        ctx.beginPath();
+        ctx.moveTo(-o.w / 2, 26); ctx.lineTo(-30, -16); ctx.lineTo(-8, -26);
+        ctx.lineTo(16, -18); ctx.lineTo(o.w / 2, 20); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "#aab6bf";
+        ctx.beginPath(); ctx.moveTo(-30, -16); ctx.lineTo(-8, -26); ctx.lineTo(16, -18);
+        ctx.lineTo(-2, -6); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "#5d6b75";
+        ctx.beginPath(); ctx.ellipse(-6, 4, 8, 5, 0, 0, 7); ctx.fill();
+        break;
+      }
+      case "kelp": {
+        const sway = Math.sin(S.t * 3 + o.sway) * 10;
+        ctx.strokeStyle = "#2e8b57"; ctx.lineWidth = 9; ctx.lineCap = "round";
+        for (let k = -1; k <= 1; k++) {
+          ctx.beginPath(); ctx.moveTo(k * 16, 70);
+          ctx.quadraticCurveTo(k * 22 + sway, 0, k * 8 + sway * 1.4, -70);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "#3cb371";
+        ctx.beginPath(); ctx.ellipse(sway, -70, 12, 7, 0, 0, 7); ctx.fill();
+        break;
+      }
+      case "island": {
+        ctx.fillStyle = "#e8d29a";
+        ctx.beginPath(); ctx.ellipse(0, 40, 44, 16, 0, 0, 7); ctx.fill();
+        ctx.strokeStyle = "#8d6e63"; ctx.lineWidth = 8; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(0, 40); ctx.quadraticCurveTo(8, -4, -3, -38); ctx.stroke();
+        ctx.fillStyle = "#43a047";
+        for (let i = 0; i < 5; i++) {
+          const a = -Math.PI / 2 + (i - 2) * 0.5;
+          ctx.save(); ctx.translate(-3, -38); ctx.rotate(a);
+          ctx.beginPath(); ctx.ellipse(0, -16, 8, 19, 0, 0, 7); ctx.fill(); ctx.restore();
+        }
+        break;
+      }
+      case "crate": {
+        ctx.fillStyle = "#b07a3e";
+        ctx.fillRect(-o.w / 2, -16, o.w, o.h - 2);
+        ctx.strokeStyle = "#7d5326"; ctx.lineWidth = 4;
+        ctx.strokeRect(-o.w / 2, -16, o.w, o.h - 2);
+        ctx.beginPath(); ctx.moveTo(-o.w / 2, -16); ctx.lineTo(o.w / 2, o.h - 18);
+        ctx.moveTo(o.w / 2, -16); ctx.lineTo(-o.w / 2, o.h - 18); ctx.stroke();
+        break;
+      }
+      case "boat": {
+        ctx.fillStyle = "#e6f2f7";
+        ctx.beginPath();
+        ctx.moveTo(-o.w / 2, 8); ctx.quadraticCurveTo(0, o.h - 12, o.w / 2, 8); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "#c0392b";
+        ctx.fillRect(-o.w / 2 + 12, -30, o.w - 24, 40);
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.moveTo(-o.w / 2 + 14, -30); ctx.lineTo(0, -6); ctx.lineTo(o.w / 2 - 14, -30); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "#8b4513";
+        ctx.fillRect(-4, -38, 8, 34);
+        break;
+      }
+      case "buoy": {
+        ctx.fillStyle = "#ef5350";
+        ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.fill();
+        ctx.fillStyle = "#fff";
+        ctx.beginPath(); ctx.arc(-4, -5, 5, 0, 7); ctx.fill();
+        ctx.strokeStyle = "#37474f"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.stroke();
+        break;
+      }
+      case "ramp": {
+        ctx.fillStyle = "#26c6da";
+        ctx.beginPath();
+        ctx.moveTo(-o.w / 2, 14); ctx.lineTo(o.w / 2, -14); ctx.lineTo(o.w / 2, 14); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = "#b2ebf2";
+        ctx.beginPath();
+        ctx.moveTo(-o.w / 2, 14); ctx.lineTo(o.w / 2, -14); ctx.lineTo(-o.w / 2 + 26, 14); ctx.closePath(); ctx.fill();
+        break;
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawPickup(p) {
+    ctx.save(); ctx.translate(p.x, p.y);
+    const pulse = 1 + Math.sin(S.t * 6) * 0.08; ctx.scale(pulse, pulse);
+    if (p.type === "coin") {
+      ctx.fillStyle = "#ffd54f"; ctx.beginPath(); ctx.arc(0, 0, 13, 0, 7); ctx.fill();
+      ctx.strokeStyle = "#e6a817"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 13, 0, 7); ctx.stroke();
+      ctx.fillStyle = "#fff3b0"; ctx.beginPath(); ctx.arc(-4, -4, 4, 0, 7); ctx.fill();
+    } else if (p.type === "boost") {
+      ctx.fillStyle = "#ffca28"; ctx.beginPath();
+      ctx.moveTo(4, -16); ctx.lineTo(-8, 2); ctx.lineTo(0, 2); ctx.lineTo(-4, 16); ctx.lineTo(8, -2); ctx.lineTo(0, -2); ctx.closePath(); ctx.fill();
+    } else if (p.type === "life") {
+      ctx.fillStyle = "#ef5350";
+      ctx.beginPath(); ctx.moveTo(0, 12); ctx.bezierCurveTo(-16, -2, -8, -14, 0, -6); ctx.bezierCurveTo(8, -14, 16, -2, 0, 12); ctx.fill();
+    } else if (p.type === "friend") {
+      ctx.fillStyle = "#f5deb3"; ctx.beginPath(); ctx.arc(0, 0, 14, 0, 7); ctx.fill();
+      ctx.fillStyle = "#7b5b3a"; ctx.beginPath(); ctx.arc(-6, -6, 4, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(6, -6, 4, 0, 7); ctx.fill();
+      ctx.fillStyle = "#333"; ctx.beginPath(); ctx.arc(0, 2, 3, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawTentacle(tk) {
+    ctx.save(); ctx.translate(tk.x, WAVE_Y + 90);
+    const sway = Math.sin(S.t * 5 + tk.phase) * 18;
+    ctx.strokeStyle = "#7e57c2"; ctx.lineWidth = 15; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(0, H - (WAVE_Y + 90));
+    ctx.quadraticCurveTo(sway, -40, sway * 1.6, -130);
+    ctx.stroke();
+    ctx.fillStyle = "#b39ddb";
+    ctx.beginPath(); ctx.arc(sway * 1.6, -130, 9, 0, 7); ctx.fill();
+    ctx.fillStyle = "#9575cd";
+    for (let i = 1; i <= 3; i++) {
+      ctx.beginPath(); ctx.arc(sway * 0.5 * i / 3, -130 * i / 4, 4, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawSurfer() {
+    const x = S.x, y = S.y + Math.sin(S.t * 3.4) * 3;
+    const under = S.y > WAVE_Y + 6;
+    const inAir = S.y < WAVE_Y - 8;
+    const angle = Math.max(-0.5, Math.min(0.5, S.vy / 1400));
     ctx.save();
     ctx.translate(x, y);
+    ctx.rotate(angle * (under ? 0.7 : 1));
 
-    // 滑板
     ctx.save();
-    ctx.rotate(-0.10);
+    ctx.rotate(-0.08);
     ctx.fillStyle = "#ff7043";
-    roundRect(-32, 0, 64, 14, 7);
-    ctx.fill();
+    roundRect(-34, -2, 68, 13, 6); ctx.fill();
     ctx.fillStyle = "#ffb74d";
-    roundRect(-26, 2, 52, 4, 2);
-    ctx.fill();
+    roundRect(-27, 0, 54, 4, 2); ctx.fill();
     ctx.restore();
 
-    // 人物
-    ctx.fillStyle = "#ffd54f"; // 身体
-    ctx.beginPath();
-    ctx.arc(2, -24, 9, 0, Math.PI * 2);
-    ctx.fill();
-    // 帽子
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.arc(2, -30, 8, Math.PI, 0);
-    ctx.fill();
-    ctx.fillStyle = "#ef5350";
-    ctx.beginPath();
-    ctx.arc(2, -30, 4, 0, Math.PI * 2);
-    ctx.fill();
-    // 身体
+    ctx.fillStyle = "#ffcc80";
+    ctx.fillRect(-10, -20, 8, 18);
+    ctx.fillRect(4, -20, 8, 18);
     ctx.fillStyle = "#26a69a";
+    ctx.beginPath(); roundRect(-9, -38, 20, 20, 6); ctx.fill();
+    ctx.fillStyle = "#ffcc80";
+    ctx.beginPath(); ctx.arc(1, -48, 9, 0, 7); ctx.fill();
+    ctx.fillStyle = "#5d4037";
+    ctx.beginPath(); ctx.arc(1, -50, 9, Math.PI * 1.05, Math.PI * 2.05); ctx.fill();
+    ctx.strokeStyle = "#ffcc80"; ctx.lineWidth = 4; ctx.lineCap = "round";
     ctx.beginPath();
-    roundRect(-6, -16, 16, 18, 6);
-    ctx.fill();
-    // 手臂
-    ctx.strokeStyle = "#ffcc80";
-    ctx.lineWidth = 4;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(-6, -12); ctx.lineTo(-18, -4);
-    ctx.moveTo(10, -12); ctx.lineTo(22, -2);
+    ctx.moveTo(-9, -34); ctx.lineTo(-20, -20);
+    ctx.moveTo(11, -34); ctx.lineTo(22, -18);
     ctx.stroke();
 
     ctx.restore();
-  }
 
-  function drawBird(x, y) {
-    ctx.save();
-    ctx.translate(x, y);
-    const flap = Math.sin(state.t * 10 + x) * 8;
-    ctx.strokeStyle = "#37474f";
-    ctx.lineWidth = 4;
-    ctx.lineCap = "round";
-    // 翅膀
-    ctx.beginPath();
-    ctx.moveTo(-18, 0); ctx.quadraticCurveTo(-6, -10 - flap, 4, 0);
-    ctx.moveTo(4, 0); ctx.quadraticCurveTo(14, -10 + flap, 22, 0);
-    ctx.stroke();
-    // 身体
-    ctx.fillStyle = "#546e7a";
-    ctx.beginPath();
-    ctx.ellipse(2, -2, 10, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  function drawPalm(x, y) {
-    ctx.save();
-    ctx.translate(x, y);
-    // 沙洲
-    ctx.fillStyle = "#f3d689";
-    ctx.beginPath();
-    ctx.ellipse(0, 40, 40, 16, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // 树干
-    ctx.strokeStyle = "#8d6e63";
-    ctx.lineWidth = 8;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(0, 40);
-    ctx.quadraticCurveTo(6, 0, -2, -30);
-    ctx.stroke();
-    // 叶子
-    ctx.fillStyle = "#43a047";
-    for (let i = 0; i < 5; i++) {
-      const a = -Math.PI / 2 + (i - 2) * 0.55;
-      ctx.save();
-      ctx.translate(-2, -30);
-      ctx.rotate(a);
-      ctx.beginPath();
-      ctx.ellipse(0, -16, 9, 20, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+    if (under) {
+      ctx.fillStyle = "rgba(18,90,140,.34)";
+      ctx.fillRect(x - 40, y - 10, 80, 30);
     }
-    ctx.restore();
-  }
-
-  function drawKraken(x, y) {
-    ctx.save();
-    ctx.translate(x, y);
-    const sway = Math.sin(state.t * 4 + x) * 6;
-    ctx.strokeStyle = "#7e57c2";
-    ctx.lineWidth = 13;
-    ctx.lineCap = "round";
-    for (let i = 0; i < 3; i++) {
-      const off = (i - 1) * 22;
-      ctx.beginPath();
-      ctx.moveTo(off, 60);
-      ctx.quadraticCurveTo(off + sway, 10, off + sway * 1.4, -38);
-      ctx.stroke();
-      // 吸盘
-      ctx.fillStyle = "#b39ddb";
-      ctx.beginPath();
-      ctx.arc(off + sway * 1.4, -38, 8, 0, Math.PI * 2);
-      ctx.fill();
+    if (inAir) {
+      ctx.fillStyle = "rgba(20,60,90,.25)";
+      ctx.beginPath(); ctx.ellipse(x, WAVE_Y + 8, 26 - (WAVE_Y - S.y) * 0.02, 5, 0, 0, 7); ctx.fill();
     }
-    ctx.restore();
   }
 
-  function drawShell(x, y, r) {
-    ctx.save();
-    ctx.translate(x, y);
-    const pulse = 1 + Math.sin(state.t * 6) * 0.08;
-    ctx.scale(pulse, pulse);
-    ctx.fillStyle = "#ffca80";
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#e8964b";
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(0, 0, r - 4, 0, Math.PI * 2);
-    ctx.stroke();
-    // 高光
-    ctx.fillStyle = "rgba(255,255,255,.7)";
-    ctx.beginPath();
-    ctx.arc(-r * 0.35, -r * 0.35, r * 0.3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+  function drawFx() {
+    for (const f of S.fx) {
+      ctx.globalAlpha = Math.max(0, f.life / 0.5);
+      ctx.fillStyle = f.color;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawHUD() {
+    ctx.textBaseline = "top"; ctx.textAlign = "left";
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 26px 'Segoe UI', system-ui, sans-serif";
-    ctx.textBaseline = "top";
-    ctx.fillText(String(state.score).padStart(5, "0"), 20, 16);
-    ctx.font = "13px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillText("得分", 20, 46);
-
+    ctx.font = "bold 30px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText(String(S.score).padStart(5, "0"), 18, 14);
+    ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText("得分 (米)", 18, 46);
     ctx.textAlign = "right";
-    ctx.font = "bold 20px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillText("最佳 " + String(state.best).padStart(5, "0"), W - 20, 18);
+    ctx.font = "bold 18px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText("最佳 " + String(S.best).padStart(5, "0"), W - 18, 18);
     ctx.textAlign = "left";
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = i < S.lives ? "#ef5350" : "rgba(255,255,255,.25)";
+      ctx.beginPath();
+      const hx = 18 + i * 26, hy = 66;
+      ctx.moveTo(hx, hy + 10); ctx.bezierCurveTo(hx - 12, hy, hx - 6, hy - 8, hx, hy - 2);
+      ctx.bezierCurveTo(hx + 6, hy - 8, hx + 12, hy, hx, hy + 10); ctx.fill();
+    }
+    for (let i = 0; i < S.boostMax; i++) {
+      ctx.fillStyle = i < S.boosts ? "#ffca28" : "rgba(255,255,255,.22)";
+      ctx.beginPath();
+      const bx = 18 + i * 26, by = 88;
+      ctx.moveTo(bx + 4, by - 12); ctx.lineTo(bx - 6, by + 2); ctx.lineTo(bx, by + 2); ctx.lineTo(bx - 4, by + 12); ctx.lineTo(bx + 6, by - 2); ctx.lineTo(bx, by - 2); ctx.closePath(); ctx.fill();
+    }
+    if (S.friend) {
+      ctx.fillStyle = "#fff176";
+      ctx.font = "bold 14px 'Segoe UI', system-ui, sans-serif";
+      ctx.fillText("🐕 伙伴", 18, 122);
+    }
+    const sp = Math.round(S.fwd / S.fwdMax * 100);
+    ctx.fillStyle = "rgba(255,255,255,.25)";
+    ctx.fillRect(18, H - 26, 150, 8);
+    ctx.fillStyle = S.boosting > 0 ? "#ffca28" : "#7cf0ff";
+    ctx.fillRect(18, H - 26, 150 * sp / 100, 8);
+    ctx.fillStyle = "rgba(255,255,255,.85)";
+    ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText("速度 " + sp + "%", 18, H - 44);
 
-    // 速度
-    ctx.fillStyle = "rgba(255,255,255,.9)";
-    ctx.font = "bold 13px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillText("速度 " + Math.round(state.speed / 260 * 100) + "%", 20, H - 20);
+    if (S.hint > 0 && S.mode === "play") {
+      ctx.globalAlpha = Math.min(1, S.hint);
+      ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,.95)";
+      ctx.font = "bold 17px 'Segoe UI', system-ui, sans-serif";
+      ctx.fillText("↑ 跳跃  ·  ↓ 下潜  ·  ←→ 移动  ·  F 加速", W / 2, 78);
+      ctx.globalAlpha = 1;
+    }
+    ctx.textAlign = "left";
   }
 
   function drawMenu() {
-    overlay("rgba(10, 30, 60, .45)");
+    overlay("rgba(8, 28, 52, .42)");
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillStyle = "#fff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-
-    ctx.font = "900 84px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillText("SURF", W / 2, 170);
-
-    ctx.font = "26px 'Segoe UI', system-ui, sans-serif";
+    ctx.font = "900 86px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText("SURF", W / 2, 150);
+    ctx.font = "24px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "#ffe082";
-    ctx.fillText("复刻 Edge 冲浪小游戏", W / 2, 230);
-
-    ctx.font = "18px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText("冲浪小游戏", W / 2, 208);
+    ctx.font = "17px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "#fff";
-    ctx.fillText("↑ / ↓  切换泳道      ← / →  左右移动", W / 2, 320);
-    ctx.fillText("空格键 开始游戏", W / 2, 355);
-
-    const pulse = 0.85 + Math.sin(state.t * 4) * 0.15;
+    ctx.fillText("↑ / ↓ 上浮·下潜     ← / → 左右移动    F 加速", W / 2, 300);
+    ctx.fillText("避开岩石、海草、木箱与船只，收集金币与能量", W / 2, 328);
+    ctx.fillText("小心海怪的触手！", W / 2, 356);
+    const pulse = 0.85 + Math.sin(S.t * 4) * 0.15;
     ctx.font = "bold 26px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "rgba(255,255,255," + pulse.toFixed(2) + ")";
-    ctx.fillText("点击 或 按空格 开始", W / 2, 420);
-
-    ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
+    ctx.fillText("点击 或 按空格 开始", W / 2, 430);
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
   }
 
-  function drawGameOver() {
-    overlay("rgba(10, 20, 40, .55)");
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-
-    ctx.font = "900 64px 'Segoe UI', system-ui, sans-serif";
-    ctx.fillStyle = "#ff8a80";
-    ctx.fillText("游戏结束", W / 2, 180);
-
+  function drawOver() {
+    overlay("rgba(8, 20, 40, .6)");
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    if (S.over === "kraken") {
+      ctx.font = "900 58px 'Segoe UI', system-ui, sans-serif";
+      ctx.fillStyle = "#b39ddb";
+      ctx.fillText("被海怪抓住了！", W / 2, 165);
+    } else {
+      ctx.font = "900 64px 'Segoe UI', system-ui, sans-serif";
+      ctx.fillStyle = "#ff8a80";
+      ctx.fillText("游戏结束", W / 2, 170);
+    }
     ctx.font = "30px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "#fff";
-    ctx.fillText("得分  " + String(state.score).padStart(5, "0"), W / 2, 250);
-
+    ctx.fillText("得分  " + String(S.score).padStart(5, "0"), W / 2, 245);
     ctx.font = "20px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "#ffe082";
-    const newBest = state.score >= state.best && state.score > 0;
-    ctx.fillText(newBest ? "🎉 新纪录！" : "最佳  " + String(state.best).padStart(5, "0"), W / 2, 300);
-
+    const nb = S.score >= S.best && S.score > 0;
+    ctx.fillText(nb ? "🎉 新纪录！" : "最佳  " + String(S.best).padStart(5, "0"), W / 2, 295);
     ctx.font = "18px 'Segoe UI', system-ui, sans-serif";
     ctx.fillStyle = "rgba(255,255,255,.9)";
-    ctx.fillText("按 空格 或 点击屏幕 再来一局", W / 2, 380);
-
-    ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
+    ctx.fillText("按 空格 或 点击屏幕 再来一局", W / 2, 375);
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
   }
 
-  function overlay(color) {
-    ctx.fillStyle = color;
+  function drawKrakenWarn() {
+    const a = (Math.sin(S.t * 20) * 0.5 + 0.5) * 0.7 + 0.3;
+    ctx.fillStyle = "rgba(255,30,40," + (a * 0.25).toFixed(2) + ")";
     ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#fff"; ctx.font = "900 30px 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText("⚠ 危险 ⚠", W / 2, 120);
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
   }
 
+  function overlay(color) { ctx.fillStyle = color; ctx.fillRect(0, 0, W, H); }
   function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y, x + w, y + h, r);
     ctx.arcTo(x + w, y + h, x, y + h, r);
     ctx.arcTo(x, y + h, x, y, r);
     ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
-  // ---------- 主循环 ----------
+  // ============ 主循环 ============
   let last = performance.now();
   function loop(now) {
-    let dt = (now - last) / 1000;
-    last = now;
+    let dt = (now - last) / 1000; last = now;
     if (dt > 0.1) dt = 0.1;
     update(dt);
     draw();
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-
-  // 预载：菜单画面需要 t 动起来
-  setInterval(() => { if (state.mode !== "playing") state.t += 0.05; }, 50);
 })();
 </script>
 </body>
